@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#4a3f8f">
+<title>Anupam AI</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 16px;
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f6f5fa; color: #1c1b22;
+    max-width: 560px; margin-inline: auto;
+  }
+  h1 { font-size: 20px; margin: 4px 0 16px; }
+  label.field { display: block; margin: 18px 0 6px; font-size: 14px; font-weight: 600; }
+  .sub { font-weight: 400; color: #6f6a85; font-size: 13px; }
+
+  .picker {
+    border: 2px dashed #b3aecb; border-radius: 12px; background: #fff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; color: #5d5875; text-align: center; font-size: 13px;
+    padding: 6px; overflow: hidden; position: relative;
+  }
+  .picker.filled { border-style: solid; border-color: #4a3f8f; }
+  .picker img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .picker input { position: absolute; inset: 0; opacity: 0; z-index: 1; }
+  .picker .x {
+    position: absolute; top: 4px; right: 4px; z-index: 3;
+    width: 26px; height: 26px; border-radius: 50%; border: 0;
+    background: rgba(0,0,0,.62); color: #fff; font-size: 17px; line-height: 1;
+    display: none; align-items: center; justify-content: center; padding: 0;
+  }
+  .picker.filled .x { display: flex; }
+
+  #customer { width: 46%; aspect-ratio: 3/4; }
+  .garments { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .garments .picker { aspect-ratio: 3/4; }
+
+  select, input[type=password] {
+    width: 100%; padding: 12px; font-size: 16px; border: 1px solid #c8c4d8;
+    border-radius: 10px; background: #fff;
+  }
+  .seg { display: flex; gap: 8px; }
+  .seg button {
+    flex: 1; padding: 12px; font-size: 15px; border: 1px solid #c8c4d8;
+    background: #fff; border-radius: 10px; color: #1c1b22;
+  }
+  .seg button[aria-pressed="true"] { background: #4a3f8f; border-color: #4a3f8f; color: #fff; }
+  #go {
+    width: 100%; margin-top: 20px; padding: 16px; font-size: 17px; font-weight: 600;
+    border: 0; border-radius: 12px; background: #4a3f8f; color: #fff;
+  }
+  #go:disabled { background: #b3aecb; }
+  #status { margin-top: 14px; text-align: center; color: #5d5875; min-height: 22px; }
+  #status.err { color: #b3261e; }
+
+  .card {
+    margin-top: 16px; background: #fff; border-radius: 12px; overflow: hidden;
+    border: 1px solid #e2dfec;
+  }
+  .card .head {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border-bottom: 1px solid #eeecf4; font-size: 14px; font-weight: 600;
+  }
+  .card .head img { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; }
+  .card .body { padding: 10px; }
+  .card .body img { width: 100%; border-radius: 8px; display: block; }
+  .card .body.pending, .card .body.failed {
+    padding: 26px 12px; text-align: center; color: #6f6a85; font-size: 14px;
+  }
+  .card .body.failed { color: #b3261e; }
+  .card a.save {
+    display: block; margin: 8px 10px 12px; padding: 11px; font-size: 15px;
+    text-align: center; border: 1px solid #4a3f8f; border-radius: 10px;
+    color: #4a3f8f; text-decoration: none;
+  }
+  .hint { font-size: 13px; color: #6f6a85; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<h1>Anupam AI</h1>
+
+<label class="field">Customer photo</label>
+<div class="picker" id="customer">
+  <span>+ Add photo</span>
+  <input type="file" accept="image/*">
+  <button class="x" type="button" aria-label="Remove">&times;</button>
+</div>
+
+<label class="field">Garments <span class="sub">— up to 2, compared side by side</span></label>
+<div class="garments" id="garments"></div>
+<p class="hint">Photograph garments flat on a plain surface. Screenshots from shopping apps give worse results.</p>
+
+<label class="field">Customer</label>
+<div class="seg" id="gender">
+  <button type="button" data-v="female" aria-pressed="true">Female</button>
+  <button type="button" data-v="male" aria-pressed="false">Male</button>
+</div>
+
+<label class="field">Look <span class="sub">— makeup styled to the outfit</span></label>
+<div class="seg" id="makeup">
+  <button type="button" data-v="1" aria-pressed="true">Makeup</button>
+  <button type="button" data-v="0" aria-pressed="false">Natural</button>
+</div>
+
+<label class="field" for="category">Garment type <span class="sub">— applies to both</span></label>
+<select id="category">
+  <optgroup label="Indian — Women">
+    <option>Saree</option><option>Salwar Suit</option><option>Kurti</option>
+    <option>Anarkali</option><option>Lehenga</option><option>Churidar</option>
+    <option>Palazzo Suit</option><option>Blouse</option>
+  </optgroup>
+  <optgroup label="Indian — Men">
+    <option>Kurta</option><option>Kurta Pyjama</option><option>Sherwani</option>
+    <option>Nehru Jacket</option><option>Dhoti</option>
+  </optgroup>
+  <optgroup label="Tops">
+    <option>Shirt</option><option>T-Shirt</option><option>Top</option><option>Vest</option>
+    <option>Hoodie</option><option>Sweater</option><option>Jacket</option><option>Blazer</option>
+  </optgroup>
+  <optgroup label="Bottoms">
+    <option>Trousers</option><option>Jeans</option><option>Cargo Pants</option>
+    <option>Track Pants</option><option>Shorts</option><option>Skirt</option>
+    <option>Palazzo</option><option>Leggings</option>
+  </optgroup>
+  <optgroup label="Full outfit">
+    <option>Suit</option><option>Dress</option><option>Gown</option>
+    <option>Jumpsuit</option><option>Co-ord Set</option>
+  </optgroup>
+</select>
+
+<label class="field" for="pin">Shop PIN</label>
+<input type="password" id="pin" inputmode="numeric" placeholder="Entered once, then remembered">
+
+<button id="go" disabled>Generate</button>
+<div id="status"></div>
+<div id="results"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const SLOTS = 2;
+let customerFile = null;
+const garmentFiles = new Array(SLOTS).fill(null);
+let gender = "female";
+let makeup = "1";   // Makeup by default
+
+$("#pin").value = localStorage.getItem("shopPin") || "";
+
+/* ---------- pickers ---------- */
+
+function wirePicker(box, onPick, onClear) {
+  const input = box.querySelector("input");
+  const x = box.querySelector(".x");
+
+  input.addEventListener("change", e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    onPick(f);
+    box.querySelector("img")?.remove();
+    const img = document.createElement("img");
+    img.src = URL.createObjectURL(f);
+    box.appendChild(img);
+    box.classList.add("filled");
+    refresh();
+  });
+
+  x.addEventListener("click", e => {
+    e.preventDefault();
+    e.stopPropagation();      // must not fall through and reopen the file dialog
+    onClear();
+    box.querySelector("img")?.remove();
+    box.classList.remove("filled");
+    input.value = "";         // so picking the same file again still fires change
+    refresh();
+  });
+}
+
+wirePicker($("#customer"), f => customerFile = f, () => customerFile = null);
+
+const garmentsEl = $("#garments");
+for (let i = 0; i < SLOTS; i++) {
+  const box = document.createElement("div");
+  box.className = "picker";
+  box.innerHTML =
+    '<span>+ Garment</span><input type="file" accept="image/*">' +
+    '<button class="x" type="button" aria-label="Remove">&times;</button>';
+  garmentsEl.appendChild(box);
+  wirePicker(box, f => garmentFiles[i] = f, () => garmentFiles[i] = null);
+}
+
+function chosenGarments() {
+  return garmentFiles.map((f, i) => ({ f, i })).filter(g => g.f);
+}
+function refresh() {
+  $("#go").disabled = !(customerFile && chosenGarments().length);
+}
+
+function wireSegment(id, onPick) {
+  $(id).addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    onPick(b.dataset.v);
+    [...$(id).children].forEach(x => x.setAttribute("aria-pressed", x === b));
+  });
+}
+wireSegment("#gender", v => gender = v);
+wireSegment("#makeup", v => makeup = v);
+
+/* ---------- generation ---------- */
+
+$("#go").addEventListener("click", async () => {
+  const pin = $("#pin").value.trim();
+  if (!pin) { setStatus("Enter the shop PIN", true); return; }
+  localStorage.setItem("shopPin", pin);
+
+  const garments = chosenGarments();
+  const category = $("#category").value.toLowerCase().replace(/\s+/g, "_");
+
+  $("#go").disabled = true;
+  $("#results").innerHTML = "";
+  setStatus(`Generating ${garments.length} look${garments.length > 1 ? "s" : ""}… 10–30 seconds`);
+
+  // One card per garment up front, filled in as each request lands, so the first
+  // result is visible without waiting for the slowest one.
+  const bodies = garments.map(g => {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML =
+      '<div class="head"><img src="' + URL.createObjectURL(g.f) + '">' +
+      "<span>Garment " + (g.i + 1) + "</span></div>" +
+      '<div class="body pending">Generating…</div>';
+    $("#results").appendChild(card);
+    return card.querySelector(".body");
+  });
+
+  let failures = 0;
+  await Promise.all(garments.map(async (g, n) => {
+    const fd = new FormData();
+    fd.append("customer_image", customerFile);
+    fd.append("garment_image", g.f);
+    fd.append("gender", gender);
+    fd.append("category", category);
+    fd.append("makeup", makeup);
+    try {
+      const res = await fetch("generate", {
+        method: "POST", body: fd, headers: { "X-Shop-Pin": pin },
+      });
+      if (res.status === 401) throw new Error("Wrong shop PIN");
+      if (res.status === 429) throw new Error("Busy — wait a few seconds and tap Generate again");
+      if (!res.ok) {
+        // The backend sends a readable reason (e.g. a safety decline) as JSON detail.
+        let msg = "Server error " + res.status;
+        try { msg = (await res.json()).detail || msg; } catch (_) {}
+        throw new Error(msg);
+      }
+      const url = URL.createObjectURL(await res.blob());
+      bodies[n].className = "body";
+      bodies[n].innerHTML = '<img src="' + url + '">';
+      const a = document.createElement("a");
+      a.className = "save"; a.href = url;
+      a.download = "tryon-" + (g.i + 1) + ".jpg";
+      a.textContent = "Save image";
+      bodies[n].after(a);
+    } catch (err) {
+      failures++;
+      bodies[n].className = "body failed";
+      bodies[n].textContent = err.message;
+    }
+  }));
+
+  setStatus(failures ? `${failures} of ${garments.length} failed — tap Generate to retry` : "", !!failures);
+  $("#go").disabled = false;
+});
+
+function setStatus(msg, isErr) {
+  const el = $("#status");
+  el.textContent = msg;
+  el.className = isErr ? "err" : "";
+}
+</script>
+</body>
+</html>

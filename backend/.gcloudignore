@@ -1,0 +1,9 @@
+# Never ship secrets or local cruft into the build context.
+.env
+deploy.py
+deploy.sh
+SPACE_README.md
+test-images/
+__pycache__/
+*.pyc
+.DS_Store

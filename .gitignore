@@ -1,0 +1,7 @@
+backend/.env
+mobile/build/
+mobile/.dart_tool/
+mobile/android/
+mobile/ios/
+__pycache__/
+*.pyc
