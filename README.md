@@ -1,9 +1,8 @@
 # Shop Try-On
 
-Internal virtual try-on tool for shop associates. See
-`/Users/jash.j/.claude/plans/i-want-you-to-imperative-seahorse.md` for the original
-architecture writeup - note the engine has since been simplified to Gemini-only for every
-category (dropped CatVTON) per a later decision.
+Internal virtual try-on tool for shop associates. See `docs/architecture.md` for the
+original architecture writeup and current state - note the engine has since been
+simplified to Gemini-only for every category (dropped CatVTON) per a later decision.
 
 - `backend/` - FastAPI proxy that sends every request to Gemini 2.5 Flash Image (~$0.039/image).
   Set this up and deploy it first - see `backend/README.md`.
