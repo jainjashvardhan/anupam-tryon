@@ -250,15 +250,46 @@ IDENTITY_LOCK = (
     "recognisable as herself, simply well made up."
 )
 
-MAKEUP_FEMALE = (
+SMILE_FIX = (
+    " If their smile looks tense, forced or awkward, soften it into a natural, relaxed "
+    "smile of the kind they'd naturally give for a photo - the same general amount of "
+    "teeth shown or not shown, no exaggeration. Leave an already-natural expression "
+    "untouched."
+)
+
+MAKEUP_FEMALE_EVERYDAY = (
     "\n\nStyle her face as if she had done her makeup to wear this outfit for a special "
     "occasion - a wedding, a festival, a family function:\n"
-    "- Evenly applied base in her OWN skin tone, softening shine and minor blemishes "
-    "but keeping her natural texture and any freckles or moles.\n"
+    "- Evenly applied base in her OWN skin tone, giving smooth, radiant, glowing skin: "
+    "clear up acne, blemishes and redness and soften shine, while keeping her natural "
+    "texture and any freckles or moles.\n"
     "- Defined, natural brows; kajal or soft liner and neutral eyeshadow; subtle blush "
     "and highlight on the cheekbones; a lip colour that complements the garment.\n"
     "- Neatly styled hair, in the same haircut and colour she already has.\n"
-    "- Tasteful and wearable, not heavy or theatrical. " + IDENTITY_LOCK
+    "- Tasteful and wearable, not heavy or theatrical." + SMILE_FIX + " " + IDENTITY_LOCK
+)
+
+# Sarees, lehengas, anarkalis and gowns are occasion wear - customers pair them with
+# fuller, more done-up makeup than an everyday top or western dress, so the preview
+# should match what they'd actually wear the outfit with rather than defaulting to a
+# light, everyday touch-up.
+FESTIVE_MAKEUP_CATEGORIES = {"saree", "lehenga", "anarkali", "gown"}
+
+MAKEUP_FEMALE_FESTIVE = (
+    "\n\nShe is trying on an outfit for a wedding, festival or family function, so give "
+    "her the fuller, more done-up makeup that goes with it - noticeably more than "
+    "everyday makeup, without turning her into someone else:\n"
+    "- Full-coverage base in her OWN skin tone with a smooth, radiant, glowing finish: "
+    "clear up acne, blemishes, redness and under-eye tiredness completely, while "
+    "keeping her natural texture and any freckles or moles.\n"
+    "- Defined, groomed brows; noticeable eye makeup - liner, kajal and an eyeshadow "
+    "that complements the garment; fuller-looking lashes; sculpted cheekbones with "
+    "blush and highlighter; a fuller, longer-wearing lip colour that complements the "
+    "garment.\n"
+    "- Neatly and elegantly styled hair, in the same haircut and colour she already "
+    "has.\n"
+    "- Festive and polished, like she is dressed for the occasion, but still tasteful "
+    "- not costume-like." + SMILE_FIX + " " + IDENTITY_LOCK
 )
 
 MAKEUP_MALE = (
@@ -271,7 +302,7 @@ MAKEUP_MALE = (
     "- Do not change his facial structure or proportions - same nose, jawline, eye "
     "shape, face width, hairline and apparent age - and keep his natural skin tone and "
     "complexion exactly as it is, with no lightening or whitening. He must be instantly "
-    "recognisable as himself."
+    "recognisable as himself." + SMILE_FIX
 )
 
 
@@ -327,20 +358,34 @@ def build_prompt(gender: str, category: str, makeup: bool = True) -> str:
         "\nKeep identical: their face, hair, skin tone, body shape, proportions, "
         "posture and pose, and the background behind them.\n"
     )
+    if gender.lower().startswith("m"):
+        styling = MAKEUP_MALE
+    elif category in FESTIVE_MAKEUP_CATEGORIES:
+        styling = MAKEUP_FEMALE_FESTIVE
+    else:
+        styling = MAKEUP_FEMALE_EVERYDAY
+
     return (
         task
         + keep
         + "Reproduce the garment exactly as in Image 2 - same colour, fabric, pattern, "
-        "embroidery and its placement, sleeve length, neckline and hem length. Do not "
-        "substitute a similar-looking garment. Scale it to fit their body naturally.\n"
+        "embroidery and its placement, sleeve length, neckline and hem length. Match "
+        "the pattern with high precision: the same motifs, prints, weaves and border "
+        "design, at their exact scale and placement - not a simplified, generic or "
+        "approximate version. This matters most on a richly patterned fabric like a "
+        "saree, where the body pattern, border and pallu design are often different "
+        "from each other and must each be reproduced as shown, not blended into one. "
+        "Keep the exact colour and shade, without shifting the hue or washing it out "
+        "or oversaturating it. Let the pattern follow the fabric's folds, pleats and "
+        "drape naturally rather than looking flat or stretched. Do not substitute a "
+        "similar-looking garment. Scale it to fit their body naturally.\n"
         "Image 2 may show the garment several times (angles, a collage, a mirror) or on "
         "a mannequin or hanger, and may be a screenshot with watermarks, logos, price "
         "tags or app buttons. Treat it as one garment, use the clearest view, and never "
         "draw any watermark or text onto the result.\n"
         "Photorealistic, same aspect ratio and orientation as Image 1."
         + MODESTY_RULES
-        + ((MAKEUP_MALE if gender.lower().startswith("m") else MAKEUP_FEMALE)
-           if makeup else "")
+        + (styling if makeup else "")
     )
 
 
