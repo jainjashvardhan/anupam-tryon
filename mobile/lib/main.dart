@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:gal/gal.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
@@ -126,22 +125,6 @@ class _TryOnScreenState extends State<TryOnScreen> {
     }
   }
 
-  Future<void> _saveResult() async {
-    if (_resultBytes == null) return;
-    try {
-      await Gal.putImageBytes(_resultBytes!, name: "tryon_${DateTime.now().millisecondsSinceEpoch}");
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text("Saved to gallery")));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text("Couldn't save: $e")));
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -211,11 +194,11 @@ class _TryOnScreenState extends State<TryOnScreen> {
                 borderRadius: BorderRadius.circular(12),
                 child: Image.memory(_resultBytes!),
               ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _saveResult,
-                icon: const Icon(Icons.download),
-                label: const Text("Save to gallery"),
+              const SizedBox(height: 8),
+              Text(
+                "Not saved to this device — only shown here.",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5),
               ),
             ],
           ],
