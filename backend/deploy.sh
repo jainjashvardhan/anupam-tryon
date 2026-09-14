@@ -26,7 +26,7 @@ gcloud run deploy "$SERVICE" \
   --region "$REGION" \
   --source . \
   --allow-unauthenticated \
-  --memory 512Mi \
+  --memory 1Gi \
   --timeout 120 \
   --max-instances 3 \
   --set-env-vars "GCP_PROJECT=${PROJECT_ID},GCP_LOCATION=${GCP_LOCATION},SHOP_PIN=${SHOP_PIN},STORAGE_BUCKET=${STORAGE_BUCKET:-}"
