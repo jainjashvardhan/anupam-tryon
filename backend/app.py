@@ -26,6 +26,8 @@ from google.genai import errors as genai_errors
 from google.genai import types
 from PIL import Image, ImageChops, ImageOps
 
+import usage
+
 load_dotenv()
 
 # Vertex AI (preferred - draws on Cloud credits, authenticates via ADC).
@@ -38,6 +40,22 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 SHOP_PIN = os.environ.get("SHOP_PIN")
 # Where generations are archived for later review. Unset = archiving off.
 STORAGE_BUCKET = os.environ.get("STORAGE_BUCKET")
+# Picture limits (usage.py): what Gemini can cost at most. Settings, not code.
+DAILY_LIMIT = int(os.environ.get("DAILY_LIMIT", "20"))
+MONTHLY_LIMIT = int(os.environ.get("MONTHLY_LIMIT", "100"))
+USAGE_BUCKET = os.environ.get("USAGE_BUCKET") or STORAGE_BUCKET
+_usage_store = None
+
+
+def usage_store():
+    """The picture counter's file store; without a bucket no picture can be counted, so none
+    is made (the cap is the point)."""
+    global _usage_store
+    if _usage_store is None:
+        if not USAGE_BUCKET:
+            raise HTTPException(503, "Anupam AI is not set up to count pictures yet.")
+        _usage_store = usage.GcsStore(USAGE_BUCKET, GCP_PROJECT)
+    return _usage_store
 
 app = FastAPI(title="Anupam AI")
 
@@ -514,6 +532,19 @@ async def generate(
     if SHOP_PIN and x_shop_pin != SHOP_PIN:
         raise HTTPException(401, "Wrong shop PIN")
 
+    # Take this picture's slot first; it is given back below if no picture comes out.
+    now = datetime.now(timezone.utc)
+    try:
+        await asyncio.to_thread(usage.reserve, usage_store(), now, DAILY_LIMIT, MONTHLY_LIMIT)
+    except usage.LimitReached as e:
+        raise HTTPException(429, str(e)) from e
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001 - the count could not be read: make no picture
+        print(f"usage check failed: {e}", flush=True)
+        raise HTTPException(503, "Anupam AI could not check today's limit. Try again in a moment.") from e
+    delivered = False
+
     category = category.lower().strip()
     # A private directory per request: the UI submits several garments against the same
     # customer photo at once, so filename-based paths would collide between them and one
@@ -562,6 +593,7 @@ async def generate(
 
         meta |= {"ok": True, "seconds": round(time.monotonic() - started, 1),
                  "result_size": list(result_img.size)}
+        delivered = True
         # Fire-and-forget so the associate gets their image without waiting on uploads.
         asyncio.create_task(
             asyncio.to_thread(archive_generation, customer_bytes, garment_bytes, result_bytes, meta)
@@ -570,6 +602,28 @@ async def generate(
     finally:
         # The working copies go immediately; the archive (if enabled) is the retained one.
         shutil.rmtree(tmp_dir, ignore_errors=True)
+        if not delivered:
+            try:
+                await asyncio.to_thread(usage.give_back, usage_store(), now)
+            except Exception as e:  # noqa: BLE001 - worst case the day shows one picture too many
+                print(f"could not give a picture slot back: {e}", flush=True)
+
+
+@app.get("/usage")
+async def usage_today(x_shop_pin: str | None = Header(default=None)):
+    """How many pictures are used and left, for the shop page to show before Show me."""
+    if SHOP_PIN and x_shop_pin != SHOP_PIN:
+        raise HTTPException(401, "Wrong shop PIN")
+    try:
+        u = await asyncio.to_thread(
+            usage.current, usage_store(), datetime.now(timezone.utc), DAILY_LIMIT, MONTHLY_LIMIT
+        )
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(503, "Could not read today's count. Try again in a moment.") from e
+    return {"used_today": u.today, "daily_limit": u.daily_limit, "used_month": u.month,
+            "monthly_limit": u.monthly_limit, "left_today": u.left_today}
 
 
 @app.get("/health")
