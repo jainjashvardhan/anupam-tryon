@@ -1,5 +1,7 @@
 """Picture limits: at most DAILY_LIMIT pictures a day and MONTHLY_LIMIT a month (Indian dates).
 
+Reads (ADR-120) share the file but have their own counter and daily cap.
+
 Every picture - from the shop system and from the phone app - goes through /generate, so this is
 the one place that can cap what Gemini costs. A slot is *reserved* before Gemini is called (the
 shop page sends several garments at once, so check-then-call would overshoot) and *given back* if
@@ -57,7 +59,16 @@ def _update(store: Store, now: datetime, change: Callable[[dict, str], dict], tr
     month, day = _keys(now)
     for _ in range(tries):
         counts, generation = store.read(month)
-        new = change({"days": dict(counts.get("days", {})), "month": counts.get("month", 0)}, day)
+        # Copy every key, so one counter's change never drops the other's (pictures vs reads).
+        new = change(
+            {
+                **counts,
+                "days": dict(counts.get("days", {})),
+                "month": counts.get("month", 0),
+                "reads": dict(counts.get("reads", {})),
+            },
+            day,
+        )
         try:
             store.write(month, new, generation)
             return new
@@ -93,6 +104,46 @@ def give_back(store: Store, now: datetime) -> None:
         return c
 
     _update(store, now, back)
+
+
+def reserve_read(store: Store, now: datetime, daily_limit: int) -> None:
+    """Take one read's slot (shop system extraction, ADR-120), or raise LimitReached. Reads are
+    counted apart from pictures and have no monthly cap: the daily one is what bounds the cost."""
+
+    def take(c: dict, day: str) -> dict:
+        if c["reads"].get(day, 0) >= daily_limit:
+            raise LimitReached(f"Today's {daily_limit} reads are used up. More tomorrow.")
+        c["reads"][day] = c["reads"].get(day, 0) + 1
+        return c
+
+    _update(store, now, take)
+
+
+def give_back_read(store: Store, now: datetime) -> None:
+    """No answer came out: return the slot taken by reserve_read()."""
+
+    def back(c: dict, day: str) -> dict:
+        if c["reads"].get(day, 0) > 0:
+            c["reads"][day] -= 1
+        return c
+
+    _update(store, now, back)
+
+
+@dataclass(frozen=True)
+class ReadUsage:
+    today: int
+    daily_limit: int
+
+    @property
+    def left_today(self) -> int:
+        return max(0, self.daily_limit - self.today)
+
+
+def reads_current(store: Store, now: datetime, daily_limit: int) -> ReadUsage:
+    month, day = _keys(now)
+    counts, _ = store.read(month)
+    return ReadUsage(counts.get("reads", {}).get(day, 0), daily_limit)
 
 
 def current(store: Store, now: datetime, daily_limit: int, monthly_limit: int) -> Usage:

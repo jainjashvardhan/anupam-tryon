@@ -4,7 +4,16 @@ from datetime import UTC, datetime
 
 import pytest
 
-from usage import Conflict, LimitReached, current, give_back, reserve
+from usage import (
+    Conflict,
+    LimitReached,
+    current,
+    give_back,
+    give_back_read,
+    reads_current,
+    reserve,
+    reserve_read,
+)
 
 NOW = datetime(2026, 9, 23, 8, 0, tzinfo=UTC)  # 1:30 PM in India
 
@@ -74,3 +83,48 @@ def test_left_today_is_the_smaller_of_day_and_month() -> None:
     store = MemoryStore()
     store.files["2026-09"] = ({"days": {"2026-09-23": 2}, "month": 95}, 1)
     assert current(store, NOW, 20, 100).left_today == 5
+
+
+# --- reads: the shop system's extraction calls, counted apart from pictures (ADR-120) ---
+
+
+def test_fifty_reads_a_day_then_a_plain_sentence() -> None:
+    store = MemoryStore()
+    for _ in range(50):
+        reserve_read(store, NOW, 50)
+    with pytest.raises(LimitReached, match="Today's 50 reads are used up"):
+        reserve_read(store, NOW, 50)
+    assert reads_current(store, NOW, 50).left_today == 0
+
+
+def test_reads_and_pictures_do_not_use_each_others_slots() -> None:
+    store = MemoryStore()
+    for _ in range(20):
+        reserve(store, NOW, 20, 100)
+    reserve_read(store, NOW, 50)  # pictures are used up; a read still goes through
+    for _ in range(49):
+        reserve_read(store, NOW, 50)
+    reserve(store, NOW, 21, 100)  # reads are used up; a picture still goes through
+    assert current(store, NOW, 21, 100).today == 21
+    assert reads_current(store, NOW, 50).today == 50
+
+
+def test_a_picture_giving_its_slot_back_keeps_the_reads() -> None:
+    store = MemoryStore()
+    reserve_read(store, NOW, 50)
+    reserve(store, NOW, 20, 100)
+    give_back(store, NOW)
+    assert reads_current(store, NOW, 50).today == 1
+
+
+def test_a_failed_read_gives_its_slot_back() -> None:
+    store = MemoryStore()
+    reserve_read(store, NOW, 50)
+    give_back_read(store, NOW)
+    assert reads_current(store, NOW, 50).left_today == 50
+
+
+def test_reads_follow_indian_time() -> None:
+    store = MemoryStore()
+    reserve_read(store, datetime(2026, 9, 23, 19, 0, tzinfo=UTC), 50)  # 00:30 on the 24th
+    assert store.files["2026-09"][0]["reads"] == {"2026-09-24": 1}

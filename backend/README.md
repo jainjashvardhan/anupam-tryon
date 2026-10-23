@@ -53,3 +53,23 @@ The count is `usage/<YYYY-MM>.json` in `USAGE_BUCKET` (defaults to `STORAGE_BUCK
 compare-and-swap so parallel instances never overshoot. Without a bucket no picture is made.
 Change the limits with `gcloud run services update shop-tryon --update-env-vars DAILY_LIMIT=..`.
 Tests: `python -m pytest backend/test_usage.py`.
+
+## Reads for the shop system (`POST /extract`)
+
+Added for the shop system's "who sells what by voice and bill photo" (inventory repo, ADR-120). The
+shop builds the prompt and checks the answer; this is still a thin proxy: it validates the request's
+shape, calls Gemini **once** with structured output, and returns the JSON.
+
+- Header `X-Shop-Pin`. JSON body: `model` (must be in `EXTRACT_MODELS`), `prompt`, `parts` (a list of
+  `{"text": ..}` or `{"mime": "audio/webm" | "image/jpeg", "data": <base64>}`), `schema` (JSON
+  schema), optional `media_resolution` (`low`/`medium`/`high`). Body limit 20 MB (Gemini's inline
+  limit), 30 s timeout (`EXTRACT_TIMEOUT_MS`), **no retry**.
+- Answer: `{result, model, tokens_in, tokens_out, latency_ms}`.
+- **`DAILY_READ_LIMIT` (default 50) reads a day**, a counter apart from pictures (`reads` in the same
+  `usage/<YYYY-MM>.json`). A read that fails gives its slot back; a malformed request costs none.
+  The 51st gets 429 "Today's 50 reads are used up. More tomorrow." Pictures are unaffected, and
+  `GET /usage` also reports `reads_used_today`, `daily_read_limit`, `reads_left_today`.
+- **Nothing about the input is logged or echoed in an error**; only exception class names are printed.
+- `EXTRACT_MODELS` (default `gemini-3.8-flash,gemini-3.5-flash-lite`) is the allow-list. The try-on
+  picture model is unchanged.
+- Tests: `python -m pytest backend`. Smoke test against the real models: `backend/smoke_extract.py`.

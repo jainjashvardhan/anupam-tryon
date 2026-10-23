@@ -19,13 +19,14 @@ import uuid
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 from PIL import Image, ImageChops, ImageOps
 
+import extract
 import usage
 
 load_dotenv()
@@ -44,6 +45,15 @@ STORAGE_BUCKET = os.environ.get("STORAGE_BUCKET")
 DAILY_LIMIT = int(os.environ.get("DAILY_LIMIT", "20"))
 MONTHLY_LIMIT = int(os.environ.get("MONTHLY_LIMIT", "100"))
 USAGE_BUCKET = os.environ.get("USAGE_BUCKET") or STORAGE_BUCKET
+# Reads for the shop system (ADR-120): their own daily cap, apart from pictures, and the models
+# they may name. Settings, not code: the evaluation picks the model.
+DAILY_READ_LIMIT = int(os.environ.get("DAILY_READ_LIMIT", "50"))
+EXTRACT_MODELS = frozenset(
+    m.strip()
+    for m in os.environ.get("EXTRACT_MODELS", "gemini-3.8-flash,gemini-3.5-flash-lite").split(",")
+    if m.strip()
+)
+EXTRACT_TIMEOUT_MS = int(os.environ.get("EXTRACT_TIMEOUT_MS", "30000"))
 _usage_store = None
 
 
@@ -609,21 +619,87 @@ async def generate(
                 print(f"could not give a picture slot back: {e}", flush=True)
 
 
+async def read_body_capped(request: Request) -> bytes:
+    """The request body, refused as soon as it passes the limit (a client may send no length)."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit():
+        extract.check_size(int(declared))
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        extract.check_size(total)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@app.post("/extract")
+async def extract_read(request: Request, x_shop_pin: str | None = Header(default=None)):
+    """One structured-output read for the shop system. Takes a read slot first (given back if no
+    answer comes out). Nothing about the input is logged or kept."""
+    if SHOP_PIN and x_shop_pin != SHOP_PIN:
+        raise HTTPException(401, "Wrong shop PIN")
+    try:
+        raw = await read_body_capped(request)
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            raise extract.ExtractError(400, "The read request is not JSON.") from None
+        req = extract.parse(parsed, EXTRACT_MODELS)  # a bad request costs no slot
+    except extract.ExtractError as e:
+        raise HTTPException(e.status, e.sentence) from None
+
+    now = datetime.now(timezone.utc)
+    try:
+        await asyncio.to_thread(usage.reserve_read, usage_store(), now, DAILY_READ_LIMIT)
+    except usage.LimitReached as e:
+        raise HTTPException(429, str(e)) from e
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001 - the count could not be read: make no read
+        print(f"read count check failed: {type(e).__name__}", flush=True)
+        raise HTTPException(503, "Anupam AI could not check today's limit. Try again in a moment.") from e
+
+    delivered = False
+    try:
+        answer = await asyncio.to_thread(
+            extract.run, build_client(), req, timeout_ms=EXTRACT_TIMEOUT_MS
+        )
+        delivered = True
+        return {
+            "result": answer.result,
+            "model": answer.model,
+            "tokens_in": answer.tokens_in,
+            "tokens_out": answer.tokens_out,
+            "latency_ms": answer.latency_ms,
+        }
+    except extract.ExtractError as e:
+        raise HTTPException(e.status, e.sentence) from None
+    finally:
+        if not delivered:
+            try:
+                await asyncio.to_thread(usage.give_back_read, usage_store(), now)
+            except Exception as e:  # noqa: BLE001 - worst case the day shows one read too many
+                print(f"could not give a read slot back: {type(e).__name__}", flush=True)
+
+
 @app.get("/usage")
 async def usage_today(x_shop_pin: str | None = Header(default=None)):
     """How many pictures are used and left, for the shop page to show before Show me."""
     if SHOP_PIN and x_shop_pin != SHOP_PIN:
         raise HTTPException(401, "Wrong shop PIN")
     try:
-        u = await asyncio.to_thread(
-            usage.current, usage_store(), datetime.now(timezone.utc), DAILY_LIMIT, MONTHLY_LIMIT
-        )
+        now = datetime.now(timezone.utc)
+        u = await asyncio.to_thread(usage.current, usage_store(), now, DAILY_LIMIT, MONTHLY_LIMIT)
+        r = await asyncio.to_thread(usage.reads_current, usage_store(), now, DAILY_READ_LIMIT)
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001
         raise HTTPException(503, "Could not read today's count. Try again in a moment.") from e
     return {"used_today": u.today, "daily_limit": u.daily_limit, "used_month": u.month,
-            "monthly_limit": u.monthly_limit, "left_today": u.left_today}
+            "monthly_limit": u.monthly_limit, "left_today": u.left_today,
+            "reads_used_today": r.today, "daily_read_limit": r.daily_limit,
+            "reads_left_today": r.left_today}
 
 
 @app.get("/health")
